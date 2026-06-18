@@ -1,0 +1,25 @@
+services:
+  db:
+    # Postgres 19 Beta 1 — first release to ship SQL/PGQ property graphs.
+    # Pin by digest for reproducibility once you've pulled the image:
+    #   docker inspect --format='{{index .RepoDigests 0}}' postgres:19beta1
+    # then replace the tag below with postgres@sha256:...
+    image: postgres:19beta1@sha256:dc37130a6277886d9972dcb4d1061eaadb194919e57f6f117f72803c965de8f3
+    container_name: pg-rdl
+    environment:
+      POSTGRES_USER: rdl
+      POSTGRES_PASSWORD: rdl
+      POSTGRES_DB: rdl
+    ports:
+      - "5439:5432"   # non-standard host port to avoid colliding with a local PG18
+    volumes:
+      # PG18+ images store data in a subdirectory; mount the parent dir, not /data.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rdl -d rdl"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:

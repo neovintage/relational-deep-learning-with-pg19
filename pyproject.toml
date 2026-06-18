@@ -1,0 +1,36 @@
+[project]
+name = "pg-rdl-experiment"
+version = "0.1.0"
+description = "Relational Deep Learning on PostgreSQL 19 SQL/PGQ property graphs"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    # data path (torch-free) — load + extract
+    "relbench>=1.0.0",
+    "pandas>=2.0",
+    "pyarrow>=15.0",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.1",
+    "scikit-learn>=1.3",   # roc_auc_score
+    # learning path — model + train
+    "torch>=2.2",
+    "torch-geometric>=2.5",
+    "pytorch-frame>=0.2",
+]
+
+[project.optional-dependencies]
+# Install just the data path (no torch) to verify the SQL/PGQ thesis quickly:
+#   uv sync --only-group data
+data = [
+    "relbench>=1.0.0",
+    "pandas>=2.0",
+    "pyarrow>=15.0",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.1",
+]
+
+[tool.uv]
+# Virtual project: uv manages the env, pg_rdl is imported from the project root
+# (run via `python -m pg_rdl.<module>`). Python 3.14 is too new for the
+# torch/relbench wheel matrix as of 2026-06; uv picks a compatible interpreter
+# in the supported range.
+package = false
