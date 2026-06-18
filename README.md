@@ -53,24 +53,25 @@ both querying and learning.
 │                        PostgreSQL 19 (beta)                        │
 │                                                                    │
 │   relational tables  ──►  CREATE PROPERTY GRAPH (SQL/PGQ)          │
-│   (RelBench dataset)      nodes = entity tables                    │
-│                           edges = PK/FK relationships              │
+│   (RelBench dataset)      entities + REIFIED fact tables = nodes   │
+│                           FK helper views/tables  = edges          │
 │                                                                    │
-│   MATCH queries  ──►  k-hop neighborhoods / subgraph extraction    │
+│   MATCH queries  ──►  time-bounded k-hop neighborhood per seed     │
 │   (optional) pgvector  ──►  store learned embeddings for serving   │
 └───────────────────────────────┬──────────────────────────────────┘
-                                 │  psycopg (SQL/PGQ MATCH results)
+                                 │  SQLAlchemy / psycopg (GRAPH_TABLE rows)
                                  ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                      Python extraction layer                       │
-│   run PGQ queries → assemble PyG HeteroData subgraphs              │
+│   GRAPH_TABLE rows  ──►  (tf_dict, edge_index_dict) per seed       │
+│   (node features sliced from once-materialized TensorFrames)       │
 └───────────────────────────────┬──────────────────────────────────┘
                                  │
                                  ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                  GNN training (PyTorch Geometric)                   │
-│   deep tabular encoders + heterogeneous message passing            │
-│   (RDL recipe, à la RelBench)                                      │
+│                  GNN training (PyTorch / PyG)                       │
+│   RelBench HeteroEncoder + HeteroGraphSAGE + binary head           │
+│   (RDL recipe; only the graph builder is replaced by SQL/PGQ)      │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -80,8 +81,8 @@ both querying and learning.
 |-------|------|------|
 | Data store | PostgreSQL 19 beta | Holds the relational dataset; defines the property graph via SQL/PGQ |
 | Graph definition | `CREATE PROPERTY GRAPH` (SQL/PGQ, core PG19) | Declares nodes/edges over existing tables — no data movement |
-| Extraction | Python + `psycopg` | Runs `MATCH` queries, builds PyG `HeteroData` subgraphs |
-| Learning | PyTorch + PyTorch Geometric | GNN message passing + tabular encoders (the RDL model) |
+| Extraction | Python + SQLAlchemy | Runs time-bounded `MATCH` queries, builds `(tf_dict, edge_index_dict)` per seed |
+| Learning | PyTorch + PyG + RelBench | `HeteroEncoder` + `HeteroGraphSAGE` + binary head (the RDL model) |
 | Serving (stretch) | `pgvector` | Land learned embeddings back in Postgres for inference |
 
 ### Dataset
