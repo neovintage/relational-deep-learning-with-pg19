@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .env
 # NOTE: uv.lock is intentionally committed (reproducibility — `uv sync --frozen`).
+
+# RelBench data lives here (populated by `uv run python -m pg_rdl.load`).
+# Ignore the downloaded data but keep the directory tracked via .gitkeep so a
+# fresh clone shows where the data goes.
+data/*
+!data/.gitkeep
