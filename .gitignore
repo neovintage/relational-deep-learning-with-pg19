@@ -8,4 +8,3 @@ __pycache__/
 # Ignore the downloaded data but keep the directory tracked via .gitkeep so a
 # fresh clone shows where the data goes.
 data/*
-!data/.gitkeep
