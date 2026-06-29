@@ -2,52 +2,46 @@
 --
 -- RDL treats every row as a node, fact tables included. SQL/PGQ edges are binary
 -- FK relationships. We bridge the two by *reifying* the `results` fact table as a
--- vertex and exposing each of its foreign keys as a narrow edge table. Each edge
--- table gets its own primary key (resultId is unique per edge, since one result
--- row references exactly one driver / race / constructor), which is what SQL/PGQ
--- needs to infer the edge key.
+-- vertex and exposing each of its foreign keys as a narrow edge table (each with
+-- its own primary key, which is what SQL/PGQ needs to infer the edge key).
 --
--- All identifiers are double-quoted: RelBench columns are camelCase and Postgres
--- folds unquoted identifiers to lowercase.
+-- The edge tables (results_driver, results_race, results_constructor) are built by
+-- the generator in pg_rdl/build_graph.py, which reifies *every* foreign key in the
+-- schema. Run it first; `make graph` does (build_graph, then this file). Here we
+-- only declare the property-graph surface over those tables.
+--
+-- Identifiers are unquoted: the loader snake_cases the camelCase RelBench columns
+-- on ingest (driverId -> driver_id), so everything folds cleanly to lowercase.
 
 DROP PROPERTY GRAPH IF EXISTS f1;
-DROP TABLE IF EXISTS results_driver, results_race, results_constructor;
-
-CREATE TABLE results_driver      AS SELECT "resultId", "driverId"      FROM results;
-CREATE TABLE results_race        AS SELECT "resultId", "raceId"        FROM results;
-CREATE TABLE results_constructor AS SELECT "resultId", "constructorId" FROM results;
-
-ALTER TABLE results_driver      ADD PRIMARY KEY ("resultId");
-ALTER TABLE results_race        ADD PRIMARY KEY ("resultId");
-ALTER TABLE results_constructor ADD PRIMARY KEY ("resultId");
 
 CREATE PROPERTY GRAPH f1
   -- The KEY column is not automatically a queryable property, so we list the id
   -- columns explicitly alongside the feature columns.
   VERTEX TABLES (
-    drivers      KEY ("driverId")      LABEL driver
-      PROPERTIES ("driverId", "code", "nationality", "dob"),
-    constructors KEY ("constructorId") LABEL constructor
-      PROPERTIES ("constructorId", "name", "nationality"),
-    circuits     KEY ("circuitId")     LABEL circuit
-      PROPERTIES ("circuitId", "country"),
-    races        KEY ("raceId")        LABEL race
-      PROPERTIES ("raceId", "year", "round", "date"),
-    results      KEY ("resultId")      LABEL result
-      PROPERTIES ("resultId", "grid", "position", "positionOrder", "points",
-                  "laps", "rank", "statusId", "date")
+    drivers      KEY (driver_id)      LABEL driver
+      PROPERTIES (driver_id, code, nationality, dob),
+    constructors KEY (constructor_id) LABEL constructor
+      PROPERTIES (constructor_id, name, nationality),
+    circuits     KEY (circuit_id)     LABEL circuit
+      PROPERTIES (circuit_id, country),
+    races        KEY (race_id)        LABEL race
+      PROPERTIES (race_id, year, round, date),
+    results      KEY (result_id)      LABEL result
+      PROPERTIES (result_id, grid, position, position_order, points,
+                  laps, rank, status_id, date)
   )
   EDGE TABLES (
     results_driver
-      SOURCE KEY ("resultId") REFERENCES results ("resultId")
-      DESTINATION KEY ("driverId") REFERENCES drivers ("driverId")
+      SOURCE KEY (result_id) REFERENCES results (result_id)
+      DESTINATION KEY (driver_id) REFERENCES drivers (driver_id)
       LABEL of_driver,
     results_race
-      SOURCE KEY ("resultId") REFERENCES results ("resultId")
-      DESTINATION KEY ("raceId") REFERENCES races ("raceId")
+      SOURCE KEY (result_id) REFERENCES results (result_id)
+      DESTINATION KEY (race_id) REFERENCES races (race_id)
       LABEL in_race,
     results_constructor
-      SOURCE KEY ("resultId") REFERENCES results ("resultId")
-      DESTINATION KEY ("constructorId") REFERENCES constructors ("constructorId")
+      SOURCE KEY (result_id) REFERENCES results (result_id)
+      DESTINATION KEY (constructor_id) REFERENCES constructors (constructor_id)
       LABEL for_constructor
   );

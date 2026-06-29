@@ -8,7 +8,7 @@ Two layers:
   experiment, now wired up and runnable via ``pg_rdl.train``.
 
 The MATCH below is fixed-depth on purpose: PG19 SQL/PGQ has no variable-length
-paths, so every hop is written explicitly. The ``res."date" < :seed_ts`` predicate
+paths, so every hop is written explicitly. The ``res.date < :seed_ts`` predicate
 is the leakage guard — it sits on the result node, which carries the event date.
 """
 
@@ -24,18 +24,18 @@ import sqlalchemy as sa
 NEIGHBORHOOD_SQL = sa.text(
     """
     SELECT * FROM GRAPH_TABLE (f1
-      MATCH (d IS driver WHERE d."driverId" = :driver_id)
-            <-[IS of_driver]-(res IS result WHERE res."date" < :seed_ts)
+      MATCH (d IS driver WHERE d.driver_id = :driver_id)
+            <-[IS of_driver]-(res IS result WHERE res.date < :seed_ts)
             -[IS in_race]->(ra IS race)
       COLUMNS (
-        d."driverId"   AS center_driver,
-        res."resultId" AS result_node,
-        res."grid"     AS grid,
-        res."position" AS position,
-        res."statusId" AS status_id,
-        res."date"     AS result_date,
-        ra."raceId"    AS race_node,
-        ra."year"      AS race_year
+        d.driver_id   AS center_driver,
+        res.result_id AS result_node,
+        res.grid      AS grid,
+        res.position  AS position,
+        res.status_id AS status_id,
+        res.date      AS result_date,
+        ra.race_id    AS race_node,
+        ra.year       AS race_year
       )
     )
     """
@@ -53,6 +53,71 @@ def fetch_neighborhood(
         return pd.read_sql(
             NEIGHBORHOOD_SQL, conn,
             params={"driver_id": int(driver_id), "seed_ts": seed_ts},
+        )
+
+
+# Recursive variant: walk the generated `graph_edges` view (pg_rdl.build_graph)
+# from the seed driver out to `max_hops`, instead of the fixed-shape MATCH above.
+# Same output columns, so build_subgraph consumes it unchanged. The walk is
+# depth-parameterized and traverses the full FK-derived edge layer; the final
+# projection restricts to the seed driver's own past result nodes, which is what
+# the current build_subgraph assumes (it wires every result to the seed driver).
+RECURSIVE_NEIGHBORHOOD_SQL = sa.text(
+    """
+    WITH RECURSIVE walk AS (
+        -- CAST() instead of the double-colon cast, to keep SQLAlchemy's bind parser happy
+        SELECT CAST('drivers' AS text) AS node_type,
+               CAST(:driver_id AS bigint) AS node_id,
+               0 AS depth
+      UNION ALL
+        SELECT e.dst_type, e.dst_id, w.depth + 1
+        FROM walk w
+        JOIN graph_edges e ON e.src_type = w.node_type AND e.src_id = w.node_id
+        WHERE w.depth < :max_hops
+          -- leakage guard: never traverse *into* a result node dated on/after the seed
+          AND (e.dst_type <> 'results' OR EXISTS (
+                SELECT 1 FROM results r
+                WHERE r.result_id = e.dst_id AND r.date < :seed_ts))
+    )
+    SELECT DISTINCT
+        :driver_id   AS center_driver,
+        r.result_id  AS result_node,
+        r.grid       AS grid,
+        r.position   AS position,
+        r.status_id  AS status_id,
+        r.date       AS result_date,
+        ra.race_id   AS race_node,
+        ra.year      AS race_year
+    FROM walk w
+    JOIN results r ON w.node_type = 'results' AND r.result_id = w.node_id
+    JOIN races   ra ON ra.race_id = r.race_id
+    WHERE r.driver_id = :driver_id   -- build_subgraph wires every result to the seed
+      AND r.date < :seed_ts          -- leakage guard on the projected rows
+    """
+)
+
+
+def fetch_neighborhood_recursive(
+    engine: sa.Engine, driver_id: int, seed_ts: datetime, max_hops: int = 2
+) -> pd.DataFrame:
+    """Recursive-CTE extraction over the generated ``graph_edges`` edge layer.
+
+    Drop-in alternative to ``fetch_neighborhood`` with identical output columns.
+    Depth is parameterized by ``max_hops`` (the MATCH version is fixed at 2). For
+    ``max_hops >= 1`` with the current ``build_subgraph`` this returns the same
+    ``(result_node, race_node)`` neighborhood as the MATCH version; deeper or
+    multi-node-type neighborhoods would need ``build_subgraph``/model changes.
+
+    Requires ``pg_rdl.build_graph`` to have built ``graph_edges`` first.
+    """
+    with engine.connect() as conn:
+        return pd.read_sql(
+            RECURSIVE_NEIGHBORHOOD_SQL, conn,
+            params={
+                "driver_id": int(driver_id),
+                "seed_ts": seed_ts,
+                "max_hops": int(max_hops),
+            },
         )
 
 
